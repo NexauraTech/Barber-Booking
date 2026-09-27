@@ -4,7 +4,9 @@ A barber appointment booking + shop management platform: a customer app, a barbe
 and a back office — mobile-first, realtime, with a scheduling engine built for the way
 barbershops actually run (appointments *and* walk-ins).
 
-This repository currently contains **research and system design**. No application code yet.
+**Status:** Phase 1 of the build plan — the schema and the scheduling core — is implemented
+and tested (95 tests, including double-booking races against a real Postgres). There is no
+HTTP API, realtime layer or UI yet. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) to run it.
 
 ## Start here
 
@@ -15,6 +17,7 @@ This repository currently contains **research and system design**. No applicatio
 | [docs/research/03-realtime.md](docs/research/03-realtime.md) | What genuinely needs to be realtime, channel design, optimistic UI, offline, notifications |
 | [docs/research/04-apps-and-ux.md](docs/research/04-apps-and-ux.md) | Customer app, barber app, shop manager back office — screen by screen, with mobile-first UX rules |
 | [docs/research/05-reference-architecture.md](docs/research/05-reference-architecture.md) | Recommended stack, data model, API surface, and a phased build plan |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Running the code: setup, tests, layout, and the invariants to preserve |
 
 ## The short version
 
