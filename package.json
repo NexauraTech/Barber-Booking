@@ -3,16 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:reset": "tsx scripts/migrate.ts --reset && tsx scripts/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx watch scripts/serve.ts",
+    "serve": "tsx scripts/serve.ts"
   },
   "dependencies": {
+    "@fastify/rate-limit": "^11.2.0",
+    "fastify": "^5.12.5",
     "luxon": "^3.5.0",
     "pg": "^8.13.1"
   },

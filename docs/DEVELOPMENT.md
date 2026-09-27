@@ -85,7 +85,9 @@ src/notifications/    outbox, scheduling, worker
 src/checkout/         point of sale: items, discounts, tips, split payment
 src/payouts/          payout computation and approval
 src/reporting/        utilisation, rebook rate, no-show cost, dashboards
-scripts/              migrate, seed
+src/auth/             phone-OTP login, session tokens, staff memberships
+src/api/              Fastify server, routes, error mapping, authorisation
+scripts/              migrate, seed, serve
 tests/
 ```
 
@@ -147,6 +149,23 @@ Rounding is half-away-from-zero, which is what a till does. `Math.round`
 rounds half *up*, so it turns -2.5 into -2 and rounds discount lines the wrong
 way.
 
+## Working on the API
+
+See [API.md](API.md) for the endpoint reference. Three things to preserve:
+
+1. **Browsing is public.** Shop details, availability and queue status need no
+   account. An auth gate in front of the booking flow is the biggest single
+   drop-off there is.
+2. **Authorisation is per location.** A barber at one shop is not staff at
+   another, and seeing money is a different permission from taking a booking.
+   Use `requireStaff(request, locationId, roles)` — never trust a staff id
+   from a request body.
+3. **Clients never write appointment rows.** Every booking goes through a
+   command in `src/booking/`. The API is the enforcement point for that.
+
+Tests drive the real app with Fastify's `inject()`, so they need no ports and
+cannot collide.
+
 ## What's built
 
 Phases 1 and 2 of the plan in `docs/research/05-reference-architecture.md` §5.4.
@@ -180,5 +199,15 @@ commands with holds and idempotency.
   rate, no-show cost against fees recovered, new-vs-returning mix, and a
   daily dashboard.
 
-Not built yet: HTTP API, realtime channels, payment processor integration
-(payments are recorded, not charged), marketing and loyalty, and the apps.
+**HTTP API.** Phone-OTP authentication with hashed codes and tokens, the public
+booking and queue endpoints, staff-side queue and checkout, reporting and
+payouts, per-location role checks, rate limiting and structured errors.
+
+Not built yet: realtime channels, payment processor integration (payments are
+recorded, not charged), marketing and loyalty, and the apps.
+
+## Known issues
+
+- `npm audit` reports moderate advisories in `vitest`/`vite`/`esbuild`. These
+  are dev-only test tooling, not shipped code, and clearing them needs a
+  breaking upgrade to vitest 5.

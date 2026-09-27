@@ -24,7 +24,8 @@ export interface Fixture {
 
 export async function resetDatabase(): Promise<void> {
   await getPool().query(`
-    TRUNCATE payout_lines, payouts, staff_compensation,
+    TRUNCATE auth_sessions, otp_challenges,
+             payout_lines, payouts, staff_compensation,
              checkout_tips, checkout_items, checkouts, products, payments,
              notifications, client_contact_preferences,
              appointment_resources, appointment_services, appointments,
@@ -43,8 +44,16 @@ export async function createFixture(
     slotStep?: number;
     pricesIncludeTax?: boolean;
     taxRateBps?: number;
+    /** Distinguishes a second shop's people from the first's. */
+    phoneSeed?: number;
+    /** Open around the clock, for tests that run at the real wall time. */
+    alwaysOpen?: boolean;
   } = {},
 ): Promise<Fixture> {
+  const seed = overrides.phoneSeed ?? 0;
+  const phone = (n: number) => `+4477009${String(seed).padStart(2, '0')}${String(n).padStart(4, '0')}`;
+  const opens = overrides.alwaysOpen ? '00:00' : '09:00';
+  const closes = overrides.alwaysOpen ? '24:00' : '17:00';
   const pool = getPool();
   const timezone = overrides.timezone ?? 'Europe/London';
 
@@ -68,12 +77,12 @@ export async function createFixture(
   );
   const locationId = location.rows[0].id;
 
-  // Mon-Sat 09:00-17:00.
-  for (let weekday = 1; weekday <= 6; weekday++) {
+  // Mon-Sat, or every day when alwaysOpen.
+  for (let weekday = 1; weekday <= (overrides.alwaysOpen ? 7 : 6); weekday++) {
     await pool.query(
       `INSERT INTO opening_hours (location_id, weekday, opens_at, closes_at)
-       VALUES ($1, $2, '09:00', '17:00')`,
-      [locationId, weekday],
+       VALUES ($1, $2, $3, $4)`,
+      [locationId, weekday, opens, closes],
     );
   }
 
@@ -96,24 +105,25 @@ export async function createFixture(
     );
     const staffId = staff.rows[0].id;
 
-    for (let weekday = 1; weekday <= 6; weekday++) {
+    for (let weekday = 1; weekday <= (overrides.alwaysOpen ? 7 : 6); weekday++) {
       await pool.query(
         `INSERT INTO shifts (staff_id, weekday, starts_at, ends_at,
                              anchor_date, effective_from)
-         VALUES ($1, $2, '09:00', '17:00', '2026-01-05', '2026-01-01')`,
-        [staffId, weekday],
+         VALUES ($1, $2, $3, $4, '2026-01-05', '2026-01-01')`,
+        [staffId, weekday, opens, closes],
       );
     }
     return staffId;
   };
 
-  const samId = await mkStaff('+447700900001', 'Sam', 'master');
-  const alexId = await mkStaff('+447700900002', 'Alex', 'apprentice');
+  const samId = await mkStaff(phone(1), 'Sam', 'master');
+  const alexId = await mkStaff(phone(2), 'Alex', 'apprentice');
 
   await pool.query(
     `INSERT INTO breaks (staff_id, weekday, starts_at, ends_at)
-     SELECT $1, w, '13:00', '13:30' FROM generate_series(1,6) w`,
-    [samId],
+     SELECT $1, w, '13:00', '13:30' FROM generate_series(1,6) w
+      WHERE $2::boolean IS NOT TRUE`,
+    [samId, overrides.alwaysOpen ?? false],
   );
 
   const mkService = async (
@@ -171,8 +181,8 @@ export async function createFixture(
     locationId,
     samId,
     alexId,
-    clientA: await mkClient('Client A', '+447700900100'),
-    clientB: await mkClient('Client B', '+447700900101'),
+    clientA: await mkClient('Client A', phone(100)),
+    clientB: await mkClient('Client B', phone(101)),
     cutId,
     beardId,
     fadeId,
