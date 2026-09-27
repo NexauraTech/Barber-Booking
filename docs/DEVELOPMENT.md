@@ -61,7 +61,10 @@ The suite splits in two:
   database — check the output rather than assuming they ran.
 
 Database tests share one schema and `TRUNCATE` between cases, so
-`vitest.config.ts` disables file parallelism. Keep it that way.
+`vitest.config.ts` sets `fileParallelism: false`. **Keep it that way** — this
+is not a performance tweak. Running the database test files concurrently makes
+them truncate each other's fixtures mid-test; forcing it on fails roughly 79 of
+84 tests.
 
 ## Layout
 
@@ -206,8 +209,3 @@ payouts, per-location role checks, rate limiting and structured errors.
 Not built yet: realtime channels, payment processor integration (payments are
 recorded, not charged), marketing and loyalty, and the apps.
 
-## Known issues
-
-- `npm audit` reports moderate advisories in `vitest`/`vite`/`esbuild`. These
-  are dev-only test tooling, not shipped code, and clearing them needs a
-  breaking upgrade to vitest 5.
