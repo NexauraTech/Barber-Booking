@@ -23,6 +23,7 @@ import type {
   ResourceConstraint,
   StaffAvailabilityInput,
 } from '../domain/availability.js';
+import type { DepositAudience, LocationPolicySettings } from '../domain/policy.js';
 
 export interface LocationPolicy {
   id: string;
@@ -32,6 +33,27 @@ export interface LocationPolicy {
   minLeadMinutes: number;
   maxHorizonDays: number;
   holdTtlSeconds: number;
+
+  // Phase 2: no-show economics (docs/research/02-scheduling-engine.md §2.8).
+  cancellationWindowHours: number;
+  lateCancelFeePercent: number;
+  noShowFeePercent: number;
+  depositAppliesTo: DepositAudience;
+  riskyNoShowThreshold: number;
+  waitlistOfferTtlSeconds: number;
+  queueNotifyAhead: number;
+  preferredMessageChannel: 'sms' | 'whatsapp' | 'email';
+}
+
+/** The subset the pure policy functions need. */
+export function policySettings(location: LocationPolicy): LocationPolicySettings {
+  return {
+    cancellationWindowHours: location.cancellationWindowHours,
+    lateCancelFeePercent: location.lateCancelFeePercent,
+    noShowFeePercent: location.noShowFeePercent,
+    depositAppliesTo: location.depositAppliesTo,
+    riskyNoShowThreshold: location.riskyNoShowThreshold,
+  };
 }
 
 export interface ResolvedServices {
@@ -57,7 +79,11 @@ export async function loadLocationPolicy(
 ): Promise<LocationPolicy> {
   const { rows } = await db(client).query(
     `SELECT id, org_id, timezone, slot_step_minutes, min_lead_minutes,
-            max_horizon_days, hold_ttl_seconds
+            max_horizon_days, hold_ttl_seconds,
+            cancellation_window_hours, late_cancel_fee_percent,
+            no_show_fee_percent, deposit_applies_to, risky_no_show_threshold,
+            waitlist_offer_ttl_seconds, queue_notify_ahead,
+            preferred_message_channel
        FROM locations WHERE id = $1`,
     [locationId],
   );
@@ -72,6 +98,14 @@ export async function loadLocationPolicy(
     minLeadMinutes: row.min_lead_minutes,
     maxHorizonDays: row.max_horizon_days,
     holdTtlSeconds: row.hold_ttl_seconds,
+    cancellationWindowHours: row.cancellation_window_hours,
+    lateCancelFeePercent: row.late_cancel_fee_percent,
+    noShowFeePercent: row.no_show_fee_percent,
+    depositAppliesTo: row.deposit_applies_to,
+    riskyNoShowThreshold: row.risky_no_show_threshold,
+    waitlistOfferTtlSeconds: row.waitlist_offer_ttl_seconds,
+    queueNotifyAhead: row.queue_notify_ahead,
+    preferredMessageChannel: row.preferred_message_channel,
   };
 }
 

@@ -24,6 +24,14 @@ import {
 import { assignAnyBarber, availableSlots } from '../domain/availability.js';
 import { localDateOf } from '../domain/localtime.js';
 import { BookingError, isSlotConflict } from './errors.js';
+import {
+  chargeLateCancellation,
+  chargeNoShow,
+  decidePolicy,
+  recordDeposit,
+} from './policy-service.js';
+import { scheduleReminders } from '../notifications/scheduling.js';
+import { cancelForAppointment } from '../notifications/outbox.js';
 
 export type AppointmentStatus =
   | 'pending'
@@ -272,6 +280,24 @@ export async function confirmAppointment(
       });
     }
 
+    const location = await loadLocationPolicy(held.location_id, client);
+
+    // Freeze the terms this client is agreeing to. A policy change tomorrow
+    // must not alter what was accepted today.
+    const { rows: serviceRows } = await client.query(
+      `SELECT service_id FROM appointment_services WHERE appointment_id = $1`,
+      [request.appointmentId],
+    );
+    const serviceIds = serviceRows.map((r) => r.service_id);
+
+    const decision = await decidePolicy(
+      location,
+      request.appointmentId,
+      held.client_id,
+      serviceIds,
+      client,
+    );
+
     const updated = await client.query(
       `UPDATE appointments
           SET status = 'confirmed',
@@ -286,12 +312,43 @@ export async function confirmAppointment(
         request.appointmentId,
         request.idempotencyKey,
         request.notes ?? null,
-        JSON.stringify(request.policySnapshot ?? {}),
+        JSON.stringify(request.policySnapshot ?? decision.snapshot),
       ],
+    );
+
+    if (decision.depositRequired) {
+      await recordDeposit(
+        location,
+        request.appointmentId,
+        held.client_id,
+        decision.depositCents,
+        await currencyFor(held.location_id, client),
+        client,
+      );
+    }
+
+    await scheduleReminders(
+      {
+        appointmentId: request.appointmentId,
+        locationId: held.location_id,
+        clientId: held.client_id,
+        appointmentStart: new Date(held.starts_at).getTime(),
+        cancellationWindowHours: location.cancellationWindowHours,
+        now: now.getTime(),
+      },
+      client,
     );
 
     return toAppointment(updated.rows[0]);
   });
+}
+
+async function currencyFor(locationId: string, client: PoolClient): Promise<string> {
+  const { rows } = await client.query(
+    `SELECT currency FROM locations WHERE id = $1`,
+    [locationId],
+  );
+  return rows[0]?.currency ?? 'USD';
 }
 
 export interface CancelRequest {
@@ -309,7 +366,17 @@ export interface CancelRequest {
  * becomes immediately resellable — which is what lets the waitlist fill it
  * (docs/research/02-scheduling-engine.md §2.8).
  */
-export async function cancelAppointment(request: CancelRequest): Promise<Appointment> {
+export interface CancelResult {
+  appointment: Appointment;
+  /** Fee charged under the accepted policy, if any. */
+  feeCents: number;
+  /** Services freed, so the caller can offer the slot to the waitlist. */
+  freedServiceIds: string[];
+}
+
+export async function cancelAppointment(
+  request: CancelRequest,
+): Promise<CancelResult> {
   const now = new Date(request.now ?? Date.now());
 
   return withTransaction(async (client) => {
@@ -331,22 +398,66 @@ export async function cancelAppointment(request: CancelRequest): Promise<Appoint
       throw new BookingError('INVALID_STATE', 'Appointment cannot be cancelled');
     }
 
-    if (request.late) {
+    const location = await loadLocationPolicy(cancelled.location_id, client);
+
+    // Judge the fee against the snapshot the client accepted, not against
+    // whatever the shop's policy says now.
+    const fee = await chargeLateCancellation(
+      location,
+      {
+        id: cancelled.id,
+        clientId: cancelled.client_id,
+        startsAt: new Date(cancelled.starts_at).getTime(),
+        policySnapshot: cancelled.policy_snapshot,
+      },
+      now.getTime(),
+      await currencyFor(cancelled.location_id, client),
+      client,
+    );
+
+    if (fee || request.late) {
       await client.query(
         `UPDATE clients SET late_cancel_count = late_cancel_count + 1 WHERE id = $1`,
         [cancelled.client_id],
       );
     }
 
-    return toAppointment(cancelled);
+    // Reminding someone about an appointment they cancelled is a small
+    // betrayal that loses clients.
+    await cancelForAppointment(cancelled.id, client);
+
+    const { rows: services } = await client.query(
+      `SELECT service_id FROM appointment_services WHERE appointment_id = $1
+        ORDER BY sort_order`,
+      [cancelled.id],
+    );
+
+    return {
+      appointment: toAppointment(cancelled),
+      feeCents: fee?.amountCents ?? 0,
+      freedServiceIds: services.map((s) => s.service_id),
+    };
   });
 }
 
-/** Mark a confirmed booking as a no-show and increment the client's count. */
+export interface NoShowResult {
+  appointment: Appointment;
+  /** Fee raised under the accepted policy; always waivable by the barber. */
+  feeCents: number;
+  feePaymentId: string | null;
+}
+
+/**
+ * Mark a confirmed booking as a no-show.
+ *
+ * Raises the fee automatically — the whole point of the policy is that it
+ * does not depend on a busy barber remembering — while leaving it as a
+ * `pending` payment a barber can waive in one action.
+ */
 export async function markNoShow(
   appointmentId: string,
   now = new Date(),
-): Promise<Appointment> {
+): Promise<NoShowResult> {
   return withTransaction(async (client) => {
     const { rows } = await client.query(
       `UPDATE appointments
@@ -366,7 +477,25 @@ export async function markNoShow(
       [appointment.client_id],
     );
 
-    return toAppointment(appointment);
+    const location = await loadLocationPolicy(appointment.location_id, client);
+    const fee = await chargeNoShow(
+      location,
+      {
+        id: appointment.id,
+        clientId: appointment.client_id,
+        policySnapshot: appointment.policy_snapshot,
+      },
+      await currencyFor(appointment.location_id, client),
+      client,
+    );
+
+    await cancelForAppointment(appointment.id, client);
+
+    return {
+      appointment: toAppointment(appointment),
+      feeCents: fee?.amountCents ?? 0,
+      feePaymentId: fee?.id ?? null,
+    };
   });
 }
 

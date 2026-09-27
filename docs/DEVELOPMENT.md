@@ -67,12 +67,19 @@ Database tests share one schema and `TRUNCATE` between cases, so
 
 ```
 db/migrations/        forward-only SQL, applied in filename order
-src/domain/           pure scheduling logic — no SQL, no clock, no I/O
+src/domain/           pure logic — no SQL, no clock, no I/O
   interval.ts         half-open interval arithmetic
   localtime.ts        wall-clock rules -> instants, DST, shift rotation
   availability.ts     the slot engine
+  queue.ts            walk-in queue simulation and ETA ranges
+  policy.ts           deposit and cancellation policy evaluation
+  reminders.ts        the 48h/24h/2h ladder, quiet hours
+  channels.ts         push/SMS/WhatsApp selection and consent
 src/db/               loading facts and resolving recurring rules
-src/booking/          commands: hold, confirm, cancel, no-show
+src/booking/          commands: hold, confirm, cancel, no-show, fees
+src/queue/            walk-in queue service
+src/waitlist/         offers, acceptance, expiry cascade
+src/notifications/    outbox, scheduling, worker
 scripts/              migrate, seed
 tests/
 ```
@@ -99,11 +106,42 @@ Half-open intervals `[start, end)` are used throughout, matching the `[)`
 bounds of the `tstzrange` in the constraint. An appointment ending at 10:00
 does not collide with one starting at 10:00.
 
+## Working on the outbox
+
+Two rules keep reminders from being sent twice or dropped:
+
+- **Queueing is idempotent** through `dedupe_key`. Re-running the scheduler
+  for an appointment must never produce a second copy of a message.
+- **Claiming takes a lease**, not just a row lock. `FOR UPDATE SKIP LOCKED`
+  only stops simultaneous claims — the lock dies with the transaction, so a
+  worker that claims, commits, then crashes would otherwise have its message
+  re-sent by the next poll. `claimed_at` holds the message for
+  `DEFAULT_LEASE_SECONDS`; if the worker died, the lease lapses and it
+  retries.
+
+The transport is injected (`src/notifications/worker.ts`). Twilio, the
+WhatsApp Business API and FCM/APNs are not wired up; `RecordingTransport` and
+`FailingTransport` stand in for them.
+
 ## What's built
 
-Phase 1 of the plan in `docs/research/05-reference-architecture.md` §5.4:
-schema, availability engine, and the booking commands with holds and
-idempotency.
+Phases 1 and 2 of the plan in `docs/research/05-reference-architecture.md` §5.4.
 
-Not built yet: HTTP API, realtime channels, queue and waitlist logic (tables
-exist, behaviour doesn't), notifications, payments, checkout, and the apps.
+**Phase 1 — booking core.** Schema, availability engine, and the booking
+commands with holds and idempotency.
+
+**Phase 2 — walk-in and no-show economics.**
+- Walk-in queue: QR join with no account, simulated ETAs as ranges, call-up
+  notifications, promotion into a real appointment through the same exclusion
+  constraint as any booking.
+- Waitlist: automatic offers on cancellation, ranked best-match-first, held as
+  a real pending appointment for an exclusive window, cascading to the next
+  match when an offer lapses.
+- Policy: deposits aimed at first-time and no-show-risk clients, cancellation
+  and no-show fees raised automatically and always waivable, terms snapshotted
+  onto the appointment at booking.
+- Notifications: outbox with leases and retry, the 48h/24h/2h reminder ladder,
+  quiet hours, per-market channel selection with consent.
+
+Not built yet: HTTP API, realtime channels, checkout and POS, payment
+processor integration, commission and payouts, reporting, and the apps.

@@ -370,7 +370,8 @@ d('booking commands', () => {
       await confirmAppointment({
         appointmentId: held.id, sessionId: 's', idempotencyKey: 'k2', now: NOW,
       });
-      await markNoShow(held.id);
+      const result = await markNoShow(held.id);
+      expect(result.appointment.status).toBe('no_show');
 
       const { rows } = await getPool().query(
         `SELECT no_show_count FROM clients WHERE id = $1`,
