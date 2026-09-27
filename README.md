@@ -4,10 +4,11 @@ A barber appointment booking + shop management platform: a customer app, a barbe
 and a back office — mobile-first, realtime, with a scheduling engine built for the way
 barbershops actually run (appointments *and* walk-ins).
 
-**Status:** Phases 1 and 2 of the build plan are implemented and tested — the scheduling
-core, the walk-in queue, the waitlist, and the deposit/no-show machinery (238 tests,
-including double-booking races against a real Postgres). There is no HTTP API, realtime
-layer or UI yet. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) to run it.
+**Status:** Phases 1–3 of the build plan are implemented and tested — the scheduling core,
+the walk-in queue, the waitlist, the deposit/no-show machinery, and checkout with payouts
+and reporting (336 tests, including double-booking races against a real Postgres). There is
+no HTTP API, realtime layer or UI yet, and payments are recorded rather than charged.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) to run it.
 
 ## Start here
 

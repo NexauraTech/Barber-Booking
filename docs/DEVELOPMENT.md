@@ -75,11 +75,16 @@ src/domain/           pure logic — no SQL, no clock, no I/O
   policy.ts           deposit and cancellation policy evaluation
   reminders.ts        the 48h/24h/2h ladder, quiet hours
   channels.ts         push/SMS/WhatsApp selection and consent
+  money.ts            integer-cent arithmetic, tax, discounts, allocation
+  compensation.ts     commission, chair rent and salary payouts
 src/db/               loading facts and resolving recurring rules
 src/booking/          commands: hold, confirm, cancel, no-show, fees
 src/queue/            walk-in queue service
 src/waitlist/         offers, acceptance, expiry cascade
 src/notifications/    outbox, scheduling, worker
+src/checkout/         point of sale: items, discounts, tips, split payment
+src/payouts/          payout computation and approval
+src/reporting/        utilisation, rebook rate, no-show cost, dashboards
 scripts/              migrate, seed
 tests/
 ```
@@ -123,6 +128,25 @@ The transport is injected (`src/notifications/worker.ts`). Twilio, the
 WhatsApp Business API and FCM/APNs are not wired up; `RecordingTransport` and
 `FailingTransport` stand in for them.
 
+## Working on money
+
+Three rules, and all three have bitten real products:
+
+1. **Integer minor units only.** Cents, pence, paise — never floats. Rates are
+   basis points (4250 = 42.5%), because percentages as floats reintroduce
+   exactly the rounding problem integers were chosen to avoid.
+2. **Tax convention is not cosmetic.** A UK shop advertises £45 *including*
+   VAT, so tax is carved out of the price; a US shop advertises $45 and adds
+   sales tax on top. `locations.prices_include_tax` decides which, and getting
+   it backwards misstates the tax on every sale by the tax amount.
+3. **Splitting money must not lose a penny.** `allocate()` distributes a
+   remainder one unit at a time rather than rounding each share
+   independently, so the parts always sum to the whole.
+
+Rounding is half-away-from-zero, which is what a till does. `Math.round`
+rounds half *up*, so it turns -2.5 into -2 and rounds discount lines the wrong
+way.
+
 ## What's built
 
 Phases 1 and 2 of the plan in `docs/research/05-reference-architecture.md` §5.4.
@@ -143,5 +167,18 @@ commands with holds and idempotency.
 - Notifications: outbox with leases and retry, the 48h/24h/2h reminder ladder,
   quiet hours, per-market channel selection with consent.
 
-Not built yet: HTTP API, realtime channels, checkout and POS, payment
-processor integration, commission and payouts, reporting, and the apps.
+**Phase 3 — money and the shop.**
+- Checkout: opens pre-filled from the appointment at booked prices, retail
+  with stock tracking, discounts that relieve tax proportionally, tips
+  attributed per barber, split payment across cash and card, and deposits
+  credited against the bill. Completing marks the appointment done and
+  returns a rebook suggestion learned from the client's own visit rhythm.
+- Payouts: commission, chair rent (which can leave a barber owing on a quiet
+  week) and salary, effective-dated so recomputing an old period uses the
+  deal that applied then. Draft → approved → paid, with line-by-line backing.
+- Reporting: revenue by barber, chair utilisation against shift hours, rebook
+  rate, no-show cost against fees recovered, new-vs-returning mix, and a
+  daily dashboard.
+
+Not built yet: HTTP API, realtime channels, payment processor integration
+(payments are recorded, not charged), marketing and loyalty, and the apps.

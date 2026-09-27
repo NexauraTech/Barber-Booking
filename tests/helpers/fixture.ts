@@ -18,12 +18,16 @@ export interface Fixture {
   beardId: string;
   fadeId: string;
   chairId: string;
+  pomadeId: string;
   timezone: string;
 }
 
 export async function resetDatabase(): Promise<void> {
   await getPool().query(`
-    TRUNCATE appointment_resources, appointment_services, appointments,
+    TRUNCATE payout_lines, payouts, staff_compensation,
+             checkout_tips, checkout_items, checkouts, products, payments,
+             notifications, client_contact_preferences,
+             appointment_resources, appointment_services, appointments,
              staff_blocks, queue_entries, waitlist_entries,
              client_preferences, clients, staff_services, services,
              service_categories, resource_types, time_off, breaks,
@@ -34,7 +38,12 @@ export async function resetDatabase(): Promise<void> {
 }
 
 export async function createFixture(
-  overrides: { timezone?: string; slotStep?: number } = {},
+  overrides: {
+    timezone?: string;
+    slotStep?: number;
+    pricesIncludeTax?: boolean;
+    taxRateBps?: number;
+  } = {},
 ): Promise<Fixture> {
   const pool = getPool();
   const timezone = overrides.timezone ?? 'Europe/London';
@@ -46,9 +55,16 @@ export async function createFixture(
 
   const location = await pool.query(
     `INSERT INTO locations (org_id, name, timezone, slot_step_minutes,
-                            min_lead_minutes, max_horizon_days, hold_ttl_seconds)
-     VALUES ($1, 'Fade Room Soho', $2, $3, 0, 60, 420) RETURNING id`,
-    [orgId, timezone, overrides.slotStep ?? 15],
+                            min_lead_minutes, max_horizon_days, hold_ttl_seconds,
+                            currency, prices_include_tax, default_tax_rate_bps)
+     VALUES ($1, 'Fade Room Soho', $2, $3, 0, 60, 420, 'GBP', $4, $5) RETURNING id`,
+    [
+      orgId,
+      timezone,
+      overrides.slotStep ?? 15,
+      overrides.pricesIncludeTax ?? false,
+      overrides.taxRateBps ?? 0,
+    ],
   );
   const locationId = location.rows[0].id;
 
@@ -135,6 +151,13 @@ export async function createFixture(
   await link(alexId, beardId, 25, 1200);
   await link(alexId, fadeId, 55, 3000);
 
+  const pomade = await pool.query(
+    `INSERT INTO products (location_id, name, sku, price_cents, cost_cents,
+                           stock_quantity)
+     VALUES ($1, 'Matte pomade', 'POM-1', 1500, 600, 10) RETURNING id`,
+    [locationId],
+  );
+
   const mkClient = async (name: string, phone: string) => {
     const { rows } = await getPool().query(
       `INSERT INTO clients (org_id, name, phone) VALUES ($1,$2,$3) RETURNING id`,
@@ -154,6 +177,7 @@ export async function createFixture(
     beardId,
     fadeId,
     chairId,
+    pomadeId: pomade.rows[0].id,
     timezone,
   };
 }
