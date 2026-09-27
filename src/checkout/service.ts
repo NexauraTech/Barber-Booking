@@ -20,6 +20,7 @@ import {
   validateSplit,
 } from '../domain/money.js';
 import { BookingError } from '../booking/errors.js';
+import { emitCheckoutCompleted, emitAppointmentStatus } from '../realtime/emit.js';
 
 type Db = Pick<PoolClient, 'query'>;
 const db = (client?: Db): Db => client ?? getPool();
@@ -526,7 +527,26 @@ export async function completeCheckout(
         [checkout.appointment_id, now],
       );
       rebook = await buildRebookSuggestion(client, checkout, now);
+
+      const { rows: appts } = await client.query(
+        `SELECT * FROM appointments WHERE id = $1`,
+        [checkout.appointment_id],
+      );
+      if (appts[0]) await emitAppointmentStatus(appts[0], 'completed', client);
     }
+
+    await emitCheckoutCompleted(
+      {
+        locationId: checkout.location_id,
+        checkoutId,
+        appointmentId: checkout.appointment_id,
+        staffId: checkout.cashier_staff_id,
+        clientId: checkout.client_id,
+        totalCents: rows[0].total_cents,
+        currency: rows[0].currency,
+      },
+      client,
+    );
 
     return { checkout: toCheckout(rows[0]), rebook };
   });

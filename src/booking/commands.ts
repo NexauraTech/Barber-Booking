@@ -32,6 +32,11 @@ import {
 } from './policy-service.js';
 import { scheduleReminders } from '../notifications/scheduling.js';
 import { cancelForAppointment } from '../notifications/outbox.js';
+import {
+  emitAppointmentCancelled,
+  emitAppointmentCreated,
+  emitAppointmentStatus,
+} from '../realtime/emit.js';
 
 export type AppointmentStatus =
   | 'pending'
@@ -339,6 +344,10 @@ export async function confirmAppointment(
       client,
     );
 
+    // A hold is not news; a confirmed booking is. Published on this client so
+    // Postgres holds it until commit and drops it if the transaction fails.
+    await emitAppointmentCreated(updated.rows[0], client);
+
     return toAppointment(updated.rows[0]);
   });
 }
@@ -432,6 +441,11 @@ export async function cancelAppointment(
       [cancelled.id],
     );
 
+    // `refilled` is not known yet — cancelAndRefill emits the authoritative
+    // event after it has tried the waitlist. This one keeps a plain cancel
+    // (no refill attempt) from being silent.
+    await emitAppointmentCancelled(cancelled, false, client);
+
     return {
       appointment: toAppointment(cancelled),
       feeCents: fee?.amountCents ?? 0,
@@ -490,6 +504,7 @@ export async function markNoShow(
     );
 
     await cancelForAppointment(appointment.id, client);
+    await emitAppointmentStatus(appointment, 'no_show', client);
 
     return {
       appointment: toAppointment(appointment),

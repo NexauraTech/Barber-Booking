@@ -19,6 +19,7 @@ import { loadAvailability, loadLocationPolicy } from '../db/availability-repo.js
 import { localDateOf } from '../domain/localtime.js';
 import { BookingError, isSlotConflict } from '../booking/errors.js';
 import { notifyNow } from '../notifications/scheduling.js';
+import { emitWaitlistOffered, emitWaitlistResolved } from '../realtime/emit.js';
 
 type Db = Pick<PoolClient, 'query'>;
 const db = (client?: Db): Db => client ?? getPool();
@@ -256,6 +257,18 @@ export async function offerFreedSlot(
         client,
       );
 
+      await emitWaitlistOffered(
+        {
+          locationId: slot.locationId,
+          waitlistEntryId: candidate.id,
+          clientId: candidate.clientId,
+          appointmentId,
+          startsAt: new Date(match.start).toISOString(),
+          expiresAt: expiresAt.toISOString(),
+        },
+        client,
+      );
+
       return { waitlistEntryId: candidate.id, appointmentId, expiresAt };
     }
 
@@ -294,6 +307,16 @@ export async function acceptOffer(
       [waitlistEntryId],
     );
 
+    await emitWaitlistResolved(
+      {
+        locationId: entry.location_id,
+        waitlistEntryId,
+        clientId: entry.client_id,
+        outcome: 'accepted',
+      },
+      client,
+    );
+
     return { appointmentId: entry.offered_appointment_id };
   });
 }
@@ -308,7 +331,7 @@ export async function expireAndCascadeOffers(
   now: number = Date.now(),
 ): Promise<Array<{ expiredEntryId: string; reoffered: OfferResult | null }>> {
   const { rows: expired } = await getPool().query(
-    `SELECT w.id, w.offered_appointment_id, w.location_id,
+    `SELECT w.id, w.offered_appointment_id, w.location_id, w.client_id,
             w.service_ids, a.staff_id, a.starts_at
        FROM waitlist_entries w
        JOIN appointments a ON a.id = w.offered_appointment_id
@@ -332,6 +355,15 @@ export async function expireAndCascadeOffers(
       await client.query(
         `UPDATE waitlist_entries SET status = 'expired' WHERE id = $1`,
         [row.id],
+      );
+      await emitWaitlistResolved(
+        {
+          locationId: row.location_id,
+          waitlistEntryId: row.id,
+          clientId: row.client_id,
+          outcome: 'expired',
+        },
+        client,
       );
     });
 

@@ -736,7 +736,7 @@ d('rate limiting', () => {
   it('throttles repeated requests for login codes', async () => {
     // This endpoint sends SMS, which costs money and is the obvious target
     // for running up a bill or spamming a number.
-    const app = await buildServer({ rateLimitMax: 1000 });
+    const app = await buildServer({ rateLimitMax: 1000, realtime: false });
     await app.ready();
 
     const send = () =>

@@ -25,7 +25,9 @@ export interface Response {
 export async function makeApi(): Promise<ApiClient> {
   // Generous ceiling so ordinary tests do not trip the limiter; the tests
   // that exercise rate limiting build their own server.
-  const app = await buildServer({ rateLimitMax: 10_000 });
+  // Realtime off by default: an HTTP-only test has no use for a dedicated
+  // LISTEN connection, and leaving one open slows teardown.
+  const app = await buildServer({ rateLimitMax: 10_000, realtime: false });
   await app.ready();
 
   const call = async (

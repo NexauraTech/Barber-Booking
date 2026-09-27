@@ -11,6 +11,7 @@
  */
 import Fastify, { type FastifyInstance } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
+import websocket from '@fastify/websocket';
 import { attachPrincipal } from './context.js';
 import { registerErrorHandler } from './errors.js';
 import { authRoutes } from './routes/auth.js';
@@ -18,12 +19,24 @@ import { bookingRoutes } from './routes/booking.js';
 import { queueRoutes } from './routes/queue.js';
 import { shopRoutes } from './routes/shop.js';
 import { getPool } from '../db/pool.js';
+import { EventBus } from '../realtime/bus.js';
+import { Hub } from '../realtime/hub.js';
+import { registerRealtime } from '../realtime/socket.js';
 
 export interface ServerOptions {
   logger?: boolean;
   /** Global rate-limit ceiling; per-route limits are tighter. */
   rateLimitMax?: number;
   trustProxy?: boolean;
+  /** Off for tests that only exercise HTTP, so no LISTEN connection is held. */
+  realtime?: boolean;
+}
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    realtimeHub?: Hub;
+    realtimeBus?: EventBus;
+  }
 }
 
 export async function buildServer(
@@ -60,6 +73,32 @@ export async function buildServer(
     await getPool().query('SELECT 1');
     return { status: 'ok' };
   });
+
+  if (options.realtime ?? true) {
+    await app.register(websocket, {
+      options: { maxPayload: 8 * 1024 },
+    });
+
+    const hub = new Hub();
+    const bus = new EventBus(undefined, (err) =>
+      app.log.error({ err }, 'realtime bus error'),
+    );
+    hub.attach(bus);
+    await bus.start();
+
+    app.realtimeHub = hub;
+    app.realtimeBus = bus;
+
+    await registerRealtime(app, { hub });
+
+    // The bus holds a dedicated connection outside the pool, so it has to be
+    // closed explicitly or the process will not exit.
+    app.addHook('onClose', async () => {
+      hub.closeAll();
+      hub.detach();
+      await bus.stop();
+    });
+  }
 
   await app.register(authRoutes);
   await app.register(bookingRoutes);

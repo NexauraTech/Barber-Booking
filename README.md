@@ -4,12 +4,14 @@ A barber appointment booking + shop management platform: a customer app, a barbe
 and a back office — mobile-first, realtime, with a scheduling engine built for the way
 barbershops actually run (appointments *and* walk-ins).
 
-**Status:** Phases 1–3 plus the HTTP API are implemented and tested — the scheduling core,
-the walk-in queue, the waitlist, the deposit/no-show machinery, checkout with payouts and
-reporting, and a Fastify API over all of it (384 tests, including double-booking races
-against a real Postgres). There is no realtime layer or UI yet, and payments are recorded
-rather than charged. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) to run it and
-[docs/API.md](docs/API.md) for the endpoints.
+**Status:** Phases 1–3, the HTTP API and the realtime layer are implemented and tested —
+the scheduling core, the walk-in queue, the waitlist, the deposit/no-show machinery,
+checkout with payouts and reporting, a Fastify API, and WebSocket push over Postgres
+LISTEN/NOTIFY (474 tests, including double-booking races against a real Postgres). There
+is no UI yet, and payments are recorded rather than charged.
+See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) to run it,
+[docs/API.md](docs/API.md) for the endpoints and
+[docs/REALTIME.md](docs/REALTIME.md) for the socket protocol.
 
 ## Start here
 
@@ -22,6 +24,7 @@ rather than charged. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) to run it an
 | [docs/research/05-reference-architecture.md](docs/research/05-reference-architecture.md) | Recommended stack, data model, API surface, and a phased build plan |
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Running the code: setup, tests, layout, and the invariants to preserve |
 | [docs/API.md](docs/API.md) | HTTP endpoints, authentication, permissions and error codes |
+| [docs/REALTIME.md](docs/REALTIME.md) | WebSocket protocol, channels, redaction and the transactional bus |
 
 ## The short version
 

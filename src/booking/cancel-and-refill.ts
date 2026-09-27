@@ -9,6 +9,7 @@
  */
 import { type CancelRequest, cancelAppointment } from './commands.js';
 import { type OfferResult, offerFreedSlot } from '../waitlist/service.js';
+import { emitQueueChanged } from '../realtime/emit.js';
 
 export interface CancelAndRefillResult {
   appointmentId: string;
@@ -40,6 +41,10 @@ export async function cancelAndRefill(
   } catch {
     offer = null;
   }
+
+  // A freed slot changes what walk-ins can be fitted in, so the queue's
+  // estimates move even though nobody joined or left it.
+  await emitQueueChanged(result.appointment.locationId, now);
 
   return {
     appointmentId: result.appointment.id,

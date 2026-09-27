@@ -5,7 +5,7 @@ import {
   bumpPriority,
   getLiveQueue,
   getPublicQueueStatus,
-  joinQueue,
+  joinQueueAndAnnounce,
   notifyUpcoming,
   promoteToAppointment,
 } from '../../queue/service.js';
@@ -63,7 +63,7 @@ export async function queueRoutes(app: FastifyInstance): Promise<void> {
         clientId = await ensureClientForUser(request.principal.userId, location.orgId);
       }
 
-      const entry = await joinQueue({
+      const entry = await joinQueueAndAnnounce({
         locationId,
         serviceIds: body.serviceIds,
         clientId,

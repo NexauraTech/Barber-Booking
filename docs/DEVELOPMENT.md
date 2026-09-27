@@ -90,6 +90,7 @@ src/payouts/          payout computation and approval
 src/reporting/        utilisation, rebook rate, no-show cost, dashboards
 src/auth/             phone-OTP login, session tokens, staff memberships
 src/api/              Fastify server, routes, error mapping, authorisation
+src/realtime/         event catalogue, channels, LISTEN/NOTIFY bus, hub, socket
 scripts/              migrate, seed, serve
 tests/
 ```
@@ -169,6 +170,29 @@ See [API.md](API.md) for the endpoint reference. Three things to preserve:
 Tests drive the real app with Fastify's `inject()`, so they need no ports and
 cannot collide.
 
+## Working on realtime
+
+See [REALTIME.md](REALTIME.md) for the protocol. Four rules:
+
+1. **The socket is read-only.** Subscribe, unsubscribe, ping. Writes go through
+   the HTTP API, because a booking is a command with a server-decided outcome.
+2. **Redaction happens in one place.** An event is published once and
+   projected per channel by `projectForChannel`. Never build a per-channel
+   payload at a call site — that is how a client's name ends up on a channel
+   other clients can join.
+3. **Publish on the transaction's client.** Postgres holds the notification
+   until COMMIT and discards it on ROLLBACK, so an event can only describe a
+   write that landed. Publishing outside the transaction loses that.
+4. **Emitting must never break a write.** The helpers in `src/realtime/emit.ts`
+   swallow their own errors on purpose. A degraded UI beats a lost booking.
+   `REALTIME_DEBUG=true` logs them.
+
+Events carry deltas, not rows — partly discipline, partly the 8000-byte NOTIFY
+ceiling. Anything larger becomes a `resync`.
+
+The WebSocket tests are the only ones in the suite that bind a port; `inject()`
+cannot exercise an upgrade.
+
 ## What's built
 
 Phases 1 and 2 of the plan in `docs/research/05-reference-architecture.md` §5.4.
@@ -206,6 +230,11 @@ commands with holds and idempotency.
 booking and queue endpoints, staff-side queue and checkout, reporting and
 payouts, per-location role checks, rate limiting and structured errors.
 
-Not built yet: realtime channels, payment processor integration (payments are
-recorded, not charged), marketing and loyalty, and the apps.
+**Realtime.** Postgres LISTEN/NOTIFY bus with transactional delivery, a
+connection hub with per-channel projection, and a read-only WebSocket endpoint.
+Public channels for availability deltas and queue position; staff channels with
+full detail; per-location authorisation on every subscription.
+
+Not built yet: payment processor integration (payments are recorded, not
+charged), marketing and loyalty, and the apps.
 

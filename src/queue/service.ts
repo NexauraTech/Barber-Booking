@@ -27,6 +27,11 @@ import { localDateOf } from '../domain/localtime.js';
 import { BookingError, isSlotConflict } from '../booking/errors.js';
 import { notifyNow } from '../notifications/scheduling.js';
 import { cancelForQueueEntry } from '../notifications/outbox.js';
+import {
+  emitAppointmentCreated,
+  emitQueueCalled,
+  emitQueueChanged,
+} from '../realtime/emit.js';
 
 type Db = Pick<PoolClient, 'query'>;
 
@@ -108,6 +113,21 @@ export async function joinQueue(request: JoinQueueRequest): Promise<QueueEntry> 
 
     return toEntry(rows[0]);
   });
+}
+
+/**
+ * Join and announce.
+ *
+ * The announce is a separate step after the write commits, because the queue
+ * snapshot has to be recomputed from committed state — positions and ETAs for
+ * everyone, not just the joiner.
+ */
+export async function joinQueueAndAnnounce(
+  request: JoinQueueRequest,
+): Promise<QueueEntry> {
+  const entry = await joinQueue(request);
+  await emitQueueChanged(request.locationId, request.now ?? Date.now());
+  return entry;
 }
 
 export interface LiveQueue {
@@ -287,8 +307,16 @@ export async function notifyUpcoming(
       `UPDATE queue_entries SET status = 'notified', notified_at = $2 WHERE id = $1`,
       [id, new Date(now)],
     );
+
+    await emitQueueCalled(locationId, {
+      id,
+      clientId: entry.clientId,
+      name: entry.guestName,
+      position: entry.estimate.position,
+    });
   }
 
+  if (toNotify.length > 0) await emitQueueChanged(locationId, now);
   return toNotify;
 }
 
@@ -303,7 +331,12 @@ export async function promoteToAppointment(
   queueEntryId: string,
   staffId: string,
   now: number = Date.now(),
-): Promise<{ appointmentId: string; startsAt: Date; endsAt: Date }> {
+): Promise<{
+  appointmentId: string;
+  startsAt: Date;
+  endsAt: Date;
+  locationId: string;
+}> {
   return withTransaction(async (client) => {
     const { rows } = await client.query(
       `SELECT * FROM queue_entries WHERE id = $1 FOR UPDATE`,
@@ -412,11 +445,13 @@ export async function promoteToAppointment(
     );
 
     await cancelForQueueEntry(queueEntryId, client);
+    await emitAppointmentCreated(appointment, client);
 
     return {
       appointmentId: appointment.id,
       startsAt: new Date(appointment.starts_at),
       endsAt: new Date(appointment.ends_at),
+      locationId: entry.location_id,
     };
   });
 }
@@ -451,16 +486,18 @@ async function upsertGuestClient(
 export async function abandonQueueEntry(
   queueEntryId: string,
 ): Promise<void> {
-  await withTransaction(async (client) => {
-    const { rowCount } = await client.query(
+  const locationId = await withTransaction(async (client) => {
+    const { rowCount, rows } = await client.query(
       `UPDATE queue_entries SET status = 'abandoned'
-        WHERE id = $1 AND status IN ('waiting','notified')`,
+        WHERE id = $1 AND status IN ('waiting','notified')
+      RETURNING location_id`,
       [queueEntryId],
     );
     if (rowCount === 0) {
       throw new BookingError('INVALID_STATE', 'Queue entry is no longer waiting');
     }
     await cancelForQueueEntry(queueEntryId, client);
+    return rows[0]?.location_id as string | undefined;
   });
 }
 
@@ -469,8 +506,10 @@ export async function bumpPriority(
   queueEntryId: string,
   priority: number,
 ): Promise<void> {
-  await getPool().query(`UPDATE queue_entries SET priority = $2 WHERE id = $1`, [
-    queueEntryId,
-    priority,
-  ]);
+  const { rows } = await getPool().query(
+    `UPDATE queue_entries SET priority = $2 WHERE id = $1 RETURNING location_id`,
+    [queueEntryId, priority],
+  );
+  // Reordering moves everyone's estimate, not just this entry's.
+  if (rows[0]) await emitQueueChanged(rows[0].location_id);
 }
