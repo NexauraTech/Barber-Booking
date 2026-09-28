@@ -91,7 +91,11 @@ src/reporting/        utilisation, rebook rate, no-show cost, dashboards
 src/auth/             phone-OTP login, session tokens, staff memberships
 src/api/              Fastify server, routes, error mapping, authorisation
 src/realtime/         event catalogue, channels, LISTEN/NOTIFY bus, hub, socket
-scripts/              migrate, seed, serve
+app/customer/         the customer web app (Preact, mobile-first)
+  src/state/          pure flow machine and formatting — no DOM, no fetch
+  src/api/            typed API client and realtime client
+  src/screens/        booking flow and walk-in queue
+scripts/              migrate, seed, serve, smoke-app
 tests/
 ```
 
@@ -193,6 +197,25 @@ ceiling. Anything larger becomes a `resync`.
 The WebSocket tests are the only ones in the suite that bind a port; `inject()`
 cannot exercise an upgrade.
 
+## Working on the customer app
+
+See [CUSTOMER-APP.md](CUSTOMER-APP.md). Four rules:
+
+1. **Browsing needs no account.** Identity is collected at the end of the
+   flow, never as a gate. No password field, no email field.
+2. **`state/` stays pure.** No React, no fetch, no clock — the flow's rules
+   are testable without a DOM, as `src/domain` is on the server.
+3. **Bundle size is a feature.** The app ships Preact via compat (16KB rather
+   than 77KB gzipped) because the budget is under three seconds to interactive
+   on a mid-range Android. Check `npm run app:build` output before adding a
+   dependency.
+4. **Losing a slot is a flow outcome, not an error.** `SLOT_TAKEN` returns to
+   the grid naming the lost time with the selection intact.
+
+`npm run app:smoke <locationId>` drives a real Chromium at 375px and checks
+touch-target size, overflow and the no-account path by measurement rather than
+by class name.
+
 ## What's built
 
 Phases 1 and 2 of the plan in `docs/research/05-reference-architecture.md` §5.4.
@@ -235,6 +258,10 @@ connection hub with per-channel projection, and a read-only WebSocket endpoint.
 Public channels for availability deltas and queue position; staff channels with
 full detail; per-location authorisation on every subscription.
 
+**Customer app.** Mobile-first web app over the API and socket: browse, book,
+walk-in queue, and cancel. Preact, 16KB gzipped, no account needed to browse or
+to join a queue.
+
 Not built yet: payment processor integration (payments are recorded, not
-charged), marketing and loyalty, and the apps.
+charged), marketing and loyalty, and the barber/back-office apps.
 

@@ -1,6 +1,9 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
+  root: __dirname,
+  plugins: [react()],
   resolve: {
     /**
      * Preact via compat, not React: ~55KB less gzipped, and bundle size is the
@@ -20,10 +23,24 @@ export default defineConfig({
       { find: /^react$/, replacement: 'preact/compat' },
     ],
   },
-  test: {
-    // Database-backed tests share one Postgres schema and TRUNCATE between
-    // cases, so they must not run concurrently with each other.
-    fileParallelism: false,
-    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
+  build: {
+    outDir: 'dist',
+    // Fail the build if the bundle grows past what a mid-range Android on a
+    // poor connection can afford. The research budget is under three seconds
+    // to interactive, and bundle size is the dominant term.
+    chunkSizeWarningLimit: 200,
+    target: 'es2020',
+  },
+  server: {
+    port: 5173,
+    // Dev-only: talk to the API on its own port without CORS.
+    proxy: {
+      '/locations': 'http://localhost:3000',
+      '/appointments': 'http://localhost:3000',
+      '/auth': 'http://localhost:3000',
+      '/queue': 'http://localhost:3000',
+      '/health': 'http://localhost:3000',
+      '/realtime': { target: 'ws://localhost:3000', ws: true },
+    },
   },
 });

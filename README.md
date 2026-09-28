@@ -4,11 +4,12 @@ A barber appointment booking + shop management platform: a customer app, a barbe
 and a back office — mobile-first, realtime, with a scheduling engine built for the way
 barbershops actually run (appointments *and* walk-ins).
 
-**Status:** Phases 1–3, the HTTP API and the realtime layer are implemented and tested —
-the scheduling core, the walk-in queue, the waitlist, the deposit/no-show machinery,
-checkout with payouts and reporting, a Fastify API, and WebSocket push over Postgres
-LISTEN/NOTIFY (474 tests, including double-booking races against a real Postgres). There
-is no UI yet, and payments are recorded rather than charged.
+**Status:** The backend and the customer app are implemented and tested — the scheduling
+core, the walk-in queue, the waitlist, the deposit/no-show machinery, checkout with payouts
+and reporting, a Fastify API, WebSocket push over Postgres LISTEN/NOTIFY, and a mobile-first
+customer web app (586 tests, including double-booking races against a real Postgres and
+browser checks at phone width). The barber and back-office apps are not built, and payments
+are recorded rather than charged.
 See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) to run it,
 [docs/API.md](docs/API.md) for the endpoints and
 [docs/REALTIME.md](docs/REALTIME.md) for the socket protocol.
@@ -25,6 +26,7 @@ See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) to run it,
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Running the code: setup, tests, layout, and the invariants to preserve |
 | [docs/API.md](docs/API.md) | HTTP endpoints, authentication, permissions and error codes |
 | [docs/REALTIME.md](docs/REALTIME.md) | WebSocket protocol, channels, redaction and the transactional bus |
+| [docs/CUSTOMER-APP.md](docs/CUSTOMER-APP.md) | The customer web app: flow, deep links, why Preact, mobile-first rules |
 
 ## The short version
 
